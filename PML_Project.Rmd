@@ -1,0 +1,74 @@
+---
+title: "PML_Project"
+author: "TZ"
+date: "September 25, 2015"
+output: html_document
+---
+##Background
+
+The goal of this project is to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants, to predict the manner in which they did the exercise. More information is available from the website here: http://groupware.les.inf.puc-rio.br/har (see the section on the Weight Lifting Exercise Dataset). 
+
+##Input Data Preparation
+
+There are 160 variables in the original data set. The data needs to be cleaned up since there are a lot of blank cells, as well as "#DIV/0" and "NA" values. By identifying columns containing these values, the number of variables is reduced to 60. This number is further reduced to 56 by removing the first column with simply the row number and 3 columns with time information.
+
+```{r}
+train<-read.csv("pml-training.csv",na.strings=c("","NA","#DIV/0!"))
+train_clean<-train[,colSums(is.na(train))==0]
+train_clean<-train_clean[,-1]
+train_clean<-train_clean[,-c(2:4)]
+```
+
+##Train and predict with Tree
+The train data has nearly 20,000 rows. If all these data points are used to create the model, it will be difficult to validate itself before being applied to predict the 20 test cases. A better choice is to split the data into training subset (60%) and testing subset (40%), and use the latter to validate the model fitted by the former.
+
+```{r}
+library(caret)
+inTrain<-createDataPartition(y=train_clean$classe,p=0.6,list=FALSE)
+training<-train_clean[inTrain,]
+testing<-train_clean[-inTrain,]
+fit<-train(classe ~.,method="rpart",data=training)
+print(fit$finalModel)
+result<-predict(fit,newdata=testing)
+confusionMatrix(result,testing$classe)
+```
+
+The accuracy is only 56%. As seen in Fig. 1, key variables to the tree model are identified, and no terminal node has predicted "D", which is one of the most serious drawbacks of the model.
+
+##Train and predict with Random Forest
+A more accurate model is necessary to better classify the test cases. Since Random Forest takes a long time to run with this large dataset, "resampling" was turned off to speed up the fitting.
+```{r}
+fitControl <- trainControl(method = "none")
+tgrid <- expand.grid(mtry=c(6)) 
+fit2<-train(classe~ .,data=training,method="rf",trControl=fitControl,tuneGrid=tgrid)
+pred<-predict(fit2,testing)
+confusionMatrix(pred,testing$classe)
+varImp(fit2,scale=FALSE)
+```
+
+The trained model predicts the test data pretty well, with 99.58% accuracy. The 20 most important (overall) variables are listed.
+
+##Predict test cases with the Random Forest model
+```{r, echo=FALSE}
+
+test20<-read.csv("pml-testing.csv",na.strings=c("","NA","#DIV/0!"))
+test20_clean<-test20[,colSums(is.na(train))==0]
+test20_clean<-test20_clean[,-1]
+test20_clean<-test20_clean[,-c(2:4)]
+##pred20<-predict(fit2,test20_clean)
+```
+The 20 test cases are predicted by the Random Forest model and the results will be submitted. The histgram of the 4 most important variables in the training data are plotted. The same variables of the 20 test cases are added in each histgram, it can be seen that they are within the normal range of the training data. Therefore, it is expected that the out of sample error to be small.
+
+```{r, echo=FALSE}
+plot(fit$finalModel,uniform=TRUE,main="Fig. 1: Classification Tree")
+text(fit$finalModel,use.n=TRUE,all=TRUE)
+par(mfrow=c(2,2))
+hist(training$num_window)
+points(test20_clean$num_window,col="red")
+hist(training$roll_belt)
+points(test20_clean$roll_belt,col="red")
+hist(training$yaw_belt)
+points(test20_clean$yaw_belt,col="red")
+hist(training$pitch_forearm)
+points(test20_clean$pitch_forearm,col="red")
+```
